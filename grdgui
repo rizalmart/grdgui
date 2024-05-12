@@ -1,0 +1,343 @@
+#!/usr/bin/python
+#gui frontend for gnome-remote-desktop
+
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gio
+import subprocess
+
+class GRDControl(Gtk.Window):
+
+    def __init__(self):
+        Gtk.Window.__init__(self, title="Gnome Remote Desktop Settings")
+        self.set_border_width(10)
+        self.set_default_size(400, 300)
+        self.set_resizable(False)
+        self.set_icon_name("network")
+        
+        self.main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.main_vbox.set_border_width(10)
+        self.add(self.main_vbox)
+
+        # Tabs
+        self.notebook = Gtk.Notebook()
+        self.main_vbox.pack_start(self.notebook,True,True,0)
+
+        # Create RDP tab
+        self.rdp_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.create_rdp_widgets()
+        self.notebook.append_page(self.rdp_box, Gtk.Label(label="RDP"))
+
+        # Create VNC tab
+        self.vnc_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.create_vnc_widgets()
+        self.notebook.append_page(self.vnc_box, Gtk.Label(label="VNC"))
+
+        # Load settings
+        self.load_rdp_settings()
+        self.load_vnc_settings()
+        
+        # Add close button
+        self.close_button = Gtk.Button(label="Close")
+        self.close_button.set_image(Gtk.Image.new_from_icon_name("window-close-symbolic", Gtk.IconSize.BUTTON))
+        self.close_button.connect("clicked", Gtk.main_quit)
+        self.close_button.set_size_request(100, 30)
+		
+        # Align close button to the bottom right corner
+        close_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        close_button_box.pack_end(self.close_button, False, False, 0)
+
+        # Add close button to the window
+        self.main_vbox.pack_end(close_button_box,False,False,0)
+
+    def load_rdp_settings(self):
+        settings = Gio.Settings.new("org.gnome.desktop.remote-desktop.rdp")
+        self.rdp_enabled_switch.set_state(settings.get_boolean("enable"))
+        self.rdp_tls_cert_button.set_uri("file://" + settings.get_string("tls-cert"))
+        self.rdp_tls_key_button.set_uri("file://" + settings.get_string("tls-key"))
+        self.rdp_enable_view_only_switch.set_state(settings.get_boolean("view-only"))
+
+    def load_vnc_settings(self):
+        settings = Gio.Settings.new("org.gnome.desktop.remote-desktop.vnc")
+        self.vnc_enabled_switch.set_state(settings.get_boolean("enable"))
+        self.vnc_view_only_switch.set_state(settings.get_boolean("view-only"))
+        auth_method_index = 0 if settings.get_string("auth-method") == "prompt" else 1
+        self.auth_method_combo.set_active(auth_method_index)
+
+    def create_rdp_widgets(self):
+        # RDP Enabled
+        rdp_enabled_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        rdp_enabled_box.set_border_width(10)
+        self.rdp_box.pack_start(rdp_enabled_box, False, False, 0)
+
+        rdp_enabled_label = Gtk.Label(label="Allow remote access via RDP")
+        rdp_enabled_box.pack_start(rdp_enabled_label, False, False, 0)
+
+        self.rdp_enabled_switch = Gtk.Switch()
+        self.rdp_enabled_switch.connect("notify::active", self.on_rdp_enabled_switch_activated)
+        rdp_enabled_box.pack_end(self.rdp_enabled_switch, False, False, 0)
+
+        # Enable View Only label and switch
+        enable_view_only_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        enable_view_only_box.set_border_width(10)
+        self.rdp_box.pack_start(enable_view_only_box, False, False, 0)
+
+        enable_view_only_label = Gtk.Label(label="View Only")
+        enable_view_only_box.pack_start(enable_view_only_label, False, False, 0)
+
+        self.rdp_enable_view_only_switch = Gtk.Switch()
+        self.rdp_enable_view_only_switch.connect("notify::active", self.on_view_only_rdp_switch_activated)
+        enable_view_only_box.pack_end(self.rdp_enable_view_only_switch, False, False, 0)
+
+       # Frame for Credentials
+        credentials_frame = Gtk.Frame(label="Credentials")
+        credentials_frame.set_border_width(10)
+        self.rdp_box.pack_start(credentials_frame, False, False, 0)
+
+        # Add a container for padding inside the Credentials frame
+        credentials_inner_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        credentials_inner_box.set_border_width(10)
+        credentials_frame.add(credentials_inner_box)
+
+        # Username
+        self.rdp_username_label = Gtk.Label(label="Username:")
+        credentials_inner_box.pack_start(self.rdp_username_label, False, False, 0)
+
+        self.rdp_username_entry = Gtk.Entry()
+        self.rdp_username_entry.set_placeholder_text("Username")
+        credentials_inner_box.pack_start(self.rdp_username_entry, False, False, 0)
+
+        # Password
+        self.rdp_password_label = Gtk.Label(label="Password:")
+        credentials_inner_box.pack_start(self.rdp_password_label, False, False, 0)
+
+        self.rdp_password_entry = Gtk.Entry()
+        self.rdp_password_entry.set_placeholder_text("Password")
+        self.rdp_password_entry.set_visibility(False)  # Password should be hidden
+        self.rdp_password_entry.set_hexpand(True)  # Password entry fills width
+        credentials_inner_box.pack_start(self.rdp_password_entry, False, False, 0)
+
+        # Set Credentials button
+        self.rdp_set_credentials_button = Gtk.Button(label="Set")
+        self.rdp_set_credentials_button.connect("clicked", self.on_rdp_set_credentials_clicked)
+        credentials_inner_box.pack_start(self.rdp_set_credentials_button, False, False, 0)
+
+        # Clear Credentials button
+        self.rdp_clear_credentials_button = Gtk.Button(label="Clear")
+        self.rdp_clear_credentials_button.connect("clicked", self.on_rdp_clear_credentials_clicked)
+        credentials_inner_box.pack_start(self.rdp_clear_credentials_button, False, False, 0)
+
+
+
+
+        # Frame for TLS Settings
+        tls_frame = Gtk.Frame(label="TLS Settings")
+        tls_frame.set_border_width(10)
+        self.rdp_box.pack_start(tls_frame, False, False, 0)
+
+        # Add a container for padding inside the TLS frame
+        tls_inner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin=8)
+        tls_frame.add(tls_inner_box)
+
+        tls_grid = Gtk.Grid()
+        tls_grid.set_column_spacing(6)
+        tls_inner_box.pack_start(tls_grid, True, True, 0)
+
+        # Set TLS Certificate
+        self.rdp_tls_cert_label = Gtk.Label(label="TLS Certificate:")
+        self.rdp_tls_cert_label.set_halign(Gtk.Align.START)
+        tls_grid.attach(self.rdp_tls_cert_label, 0, 0, 1, 1)
+
+        self.rdp_tls_cert_button = Gtk.FileChooserButton(title="Choose TLS Certificate")
+        self.rdp_tls_cert_button.set_hexpand(True)
+        tls_grid.attach_next_to(self.rdp_tls_cert_button, self.rdp_tls_cert_label, Gtk.PositionType.RIGHT, 1, 1)
+
+        # Set TLS Certificate Button
+        self.set_tls_cert_button = Gtk.Button(label="Set TLS Certificate")
+        self.set_tls_cert_button.connect("clicked", self.on_set_tls_cert_clicked)
+        tls_grid.attach_next_to(self.set_tls_cert_button, self.rdp_tls_cert_button, Gtk.PositionType.RIGHT, 1, 1)
+
+        # Set TLS Key
+        self.rdp_tls_key_label = Gtk.Label(label="TLS Key:")
+        self.rdp_tls_key_label.set_halign(Gtk.Align.START)
+        tls_grid.attach(self.rdp_tls_key_label, 0, 1, 1, 1)
+
+        self.rdp_tls_key_button = Gtk.FileChooserButton(title="Choose TLS Key")
+        self.rdp_tls_key_button.set_hexpand(True)
+        tls_grid.attach_next_to(self.rdp_tls_key_button, self.rdp_tls_key_label, Gtk.PositionType.RIGHT, 1, 1)
+
+        # Set TLS Key Button
+        self.set_tls_key_button = Gtk.Button(label="Set TLS Key")
+        self.set_tls_key_button.connect("clicked", self.on_set_tls_key_clicked)
+        tls_grid.attach_next_to(self.set_tls_key_button, self.rdp_tls_key_button, Gtk.PositionType.RIGHT, 1, 1)
+
+    def create_vnc_widgets(self):
+        # VNC Enabled
+        vnc_enabled_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        vnc_enabled_box.set_border_width(10)
+        self.vnc_box.pack_start(vnc_enabled_box, False, False, 0)
+
+        vnc_enabled_label = Gtk.Label(label="Allow remote access via VNC")
+        vnc_enabled_box.pack_start(vnc_enabled_label, False, False, 0)
+
+        self.vnc_enabled_switch = Gtk.Switch()
+        self.vnc_enabled_switch.connect("notify::active", self.on_vnc_enabled_switch_activated)
+        vnc_enabled_box.pack_end(self.vnc_enabled_switch, False, False, 0)
+
+        # View Only switch
+        view_only_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        view_only_box.set_border_width(10)
+        self.vnc_box.pack_start(view_only_box, False, False, 0)
+
+        view_only_label = Gtk.Label(label="View Only")
+        view_only_box.pack_start(view_only_label, False, False, 0)
+
+        self.vnc_view_only_switch = Gtk.Switch()
+        self.vnc_view_only_switch.connect("notify::active", self.on_view_only_vnc_switch_activated)
+        view_only_box.pack_end(self.vnc_view_only_switch, False, False, 0)
+
+
+        # Password
+        password_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        password_box.set_border_width(10)
+        self.vnc_box.pack_start(password_box, False, False, 0)
+
+        password_label = Gtk.Label(label="Password: ")
+        password_box.pack_start(password_label, False, False, 0)
+
+        self.vnc_password_entry = Gtk.Entry()
+        self.vnc_password_entry.set_visibility(False)  # Password should be hidden
+        self.vnc_password_entry.set_hexpand(True)  # Password entry fills width
+        password_box.pack_start(self.vnc_password_entry, True, True, 0)
+
+        # Set Password button
+        self.set_password_button = Gtk.Button(label="Set Password")
+        self.set_password_button.connect("clicked", self.on_set_password_clicked)
+        password_box.pack_start(self.set_password_button, False, False, 0)
+
+        # Clear Password button
+        self.clear_password_button = Gtk.Button(label="Clear Password")
+        self.clear_password_button.connect("clicked", self.on_clear_password_clicked)
+        password_box.pack_start(self.clear_password_button, False, False, 0)
+
+
+        #Auth Method ComboBox
+        auth_method_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        auth_method_box.set_border_width(10)
+        self.vnc_box.pack_start(auth_method_box, False, False, 0)
+
+        auth_method_label = Gtk.Label(label="Auth Method:")
+        auth_method_box.pack_start(auth_method_label, False, False, 0)
+
+        auth_method_store = Gtk.ListStore(str)
+        auth_method_store.append(["prompt"])
+        auth_method_store.append(["password"])
+
+        self.auth_method_combo = Gtk.ComboBox.new_with_model(auth_method_store)
+        self.auth_method_combo.connect("changed", self.on_auth_method_clicked)
+        auth_method_box.pack_end(self.auth_method_combo, False, False, 0)
+        renderer_text = Gtk.CellRendererText()
+        self.auth_method_combo.pack_end(renderer_text, True)
+        self.auth_method_combo.add_attribute(renderer_text, "text", 0)
+
+    def on_rdp_clear_credentials_clicked(self, widget):
+        # Clear username and password credentials
+        self.rdp_username_entry.set_text("")
+        self.rdp_password_entry.set_text("")
+        self.execute_command("grdctl rdp clear-credentials",False)
+
+    def on_rdp_set_credentials_clicked(self, widget):
+        username = self.rdp_username_entry.get_text()
+        password = self.rdp_password_entry.get_text()
+        command = f"grdctl rdp set-credentials {username} {password}"
+        self.execute_command(command,False)
+
+    def on_vnc_enabled_switch_activated(self, switch, gparam):
+        if switch.get_active():
+            self.execute_command("grdctl vnc enable")
+        else:
+            self.execute_command("grdctl vnc disable")
+
+    def on_set_password_clicked(self, widget):
+        password = self.vnc_password_entry.get_text()
+        command = f"grdctl vnc set-password {password}"
+        self.execute_command(command,False)
+
+    def on_clear_password_clicked(self, widget):
+        self.vnc_password_entry.set_text("")
+        self.execute_command("grdctl vnc clear-password",False)
+
+    def on_view_only_rdp_switch_activated(self, switch, gparam):
+        if switch.get_active():
+            self.execute_command("grdctl rdp enable-view-only")
+        else:
+            self.execute_command("grdctl rdp disable-view-only")
+
+    def on_view_only_vnc_switch_activated(self, switch, gparam):
+        if switch.get_active():
+            self.execute_command("grdctl vnc enable-view-only")
+        else:
+            self.execute_command("grdctl vnc disable-view-only")
+
+    def on_auth_method_clicked(self, combo):
+        tree_iter = combo.get_active_iter()
+        if tree_iter is not None:
+            model = combo.get_model()
+            auth_method = model[tree_iter][0]
+            command = f"grdctl vnc set-auth-method {auth_method}"
+            self.execute_command(command)
+
+    def on_rdp_enabled_switch_activated(self, switch, gparam):
+        if switch.get_active():
+            self.execute_command("grdctl rdp enable")
+        else:
+            self.execute_command("grdctl rdp disable")
+
+    def on_set_tls_cert_clicked(self, widget):
+        # Get selected TLS certificate from file chooser
+        selected_cert = self.rdp_tls_cert_button.get_filename()
+        if selected_cert:
+            command = f"grdctl rdp set-tls-cert {selected_cert}"
+            self.execute_command(command,False)
+        else:
+            self.show_message_dialog("Please select a TLS certificate file.")
+
+    def on_set_tls_key_clicked(self, widget):
+        # Get selected TLS key from file chooser
+        selected_key = self.rdp_tls_key_button.get_filename()
+        if selected_key:
+            command = f"grdctl rdp set-tls-key {selected_key}"
+            self.execute_command(command,False)
+        else:
+            self.show_message_dialog("Please select a TLS key file.")
+
+    def execute_command(self, command, silent=True):
+        try:
+            result = subprocess.run(command.split(), capture_output=True, text=True, check=True)
+            output = result.stdout
+            dlgtype = Gtk.MessageType.INFO
+        except subprocess.CalledProcessError as e:
+            output = e.stderr
+            dlgtype = Gtk.MessageType.ERROR
+        
+        if silent==True:
+           return
+         
+        if output=="":
+           output="Applied successfully"			
+        
+        dialog = Gtk.MessageDialog(parent=self, flags=0, message_type=dlgtype,
+                                   buttons=Gtk.ButtonsType.OK, text="\n"+output)
+        dialog.run()
+        dialog.destroy()
+
+    def show_message_dialog(self, message):
+        dialog = Gtk.MessageDialog(parent=self, flags=0, message_type=Gtk.MessageType.ERROR,
+                                   buttons=Gtk.ButtonsType.OK, text="\n"+ message)
+        dialog.run()
+        dialog.destroy()
+
+win = GRDControl()
+win.connect("destroy", Gtk.main_quit)
+win.show_all()
+Gtk.main()
